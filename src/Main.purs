@@ -2,6 +2,9 @@ module Main where
 
 import Prelude
 
+import Data.Generic.Rep (class Generic)
+import Data.Generic.Rep.Show (genericShow)
+
 import Node.Optlicative.Internal (charList)
 import Data.String.CodeUnits (toCharArray, fromCharArray)
 
@@ -38,7 +41,21 @@ import Web.DOM.NonElementParentNode (getElementById)
 --import Foreign as Foreign
 --import Foreign.Generic.Class as Foreign 
 
+--newtype Error a = Error (Either String a)
 data Parser a = Tuple (Either String a) String
+
+derive instance genericParser :: Generic (Parser a) _
+instance showParser :: (Show a) => Show (Parser a) where
+  show = genericShow
+
+--instance showError :: (Show a) => Show (Error a) where
+--  show (Error (Right a))  = "Right (" + show a + ")"
+--  show (Error (Left str)) = "Left \"" + str + "\""
+
+--derive instance showParser :: (Show a) => Show (Parser a)
+
+--instance showParser :: (Show a) => Show (Parser a) where
+--  show (Tuple eit str) = "("+str+")"
 
 satisfy :: (Char -> Boolean) -> String -> Parser Char
 satisfy f str = let nonEmptyStr = NE.fromArray (toCharArray str)
@@ -51,6 +68,12 @@ satisfy f str = let nonEmptyStr = NE.fromArray (toCharArray str)
 
 char :: Char -> String -> Parser Char
 char c = satisfy (eq c)
+
+--string :: String -> String -> Parser String
+--string s = let 
+
+--parse :: (String -> Parser a) -> String -> Parser a
+--parse f str = 
                                            
 --parse :: (String -> Boolean) -> String -> Parser String
 --parse f "" = Tuple (Left "No parsable string.") ""
