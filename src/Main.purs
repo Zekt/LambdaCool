@@ -53,9 +53,12 @@ instance showParser :: (Show a) => Show (Parser a) where
 instance functorParser :: Functor Parser where
   map f (Tuple opt str) = Tuple (map f opt) str
 
-instance bindParser :: Bind Parser where
-  bind (Tuple (Left err) str) _ = Tuple (Left err) str
-  bind (Tuple (Right a) str) f = f a
+--instance applyParser :: Apply Parser where
+--  apply (Tuple fopt str) fa = Tuple (apply fopt fa) str
+
+--instance bindParser :: Bind Parser where
+--  bind (Tuple (Left err) str) _ = Tuple (Left err) str
+--  bind (Tuple (Right a) str) f = f a
 --                                        Tuple (Left err) str2   -> Tuple (Left err) str1
 --                                        Tuple (Right strP) str2 -> Tuple (Right )
 
@@ -75,20 +78,27 @@ satisfy f str = let nonEmptyStr = NEA.fromArray (toCharArray str)
                          Just strArr ->
                            case NEA.toNonEmpty strArr of
                                 NE.NonEmpty c cs ->
---                                  if f c then Tuple (Right c) (fromCharArray cs)
---                                         else Tuple (Left "do not satisfy") (fromCharArray cs)
+                                  if f c then Tuple (Right c) (fromCharArray cs)
+                                         else Tuple (Left "do not satisfy") (fromCharArray cs)
 
 char :: Char -> String -> Parser Char
 char c = satisfy (eq c)
 
+consChar :: Char -> String -> String
+consChar c str = fromCharArray $ cons c (toCharArray str)
+
+parseWith :: forall a b c. Parser a -> (String -> Parser b) -> (a -> b -> c) -> Parser c
+parseWith (Tuple (Left err) str) f1 f2 = Tuple (Left err) str
+parseWith (Tuple (Right a) str) f1 f2 = map (f2 a) (f1 str)
+
 string :: String -> String -> Parser String
 string str1 str2 = let nonEmptyStr = NEA.fromArray (toCharArray str1)
                     in case nonEmptyStr of
-                            Nothing -> Tuple (Left "end of string") ""
+                            Nothing -> Tuple (Right "") str2
                             Just strArr ->
                               case NEA.toNonEmpty strArr of
                                    NE.NonEmpty c cs ->
-                                     bind (char c str2) (\c -> map toCharArray $ string $ fromCharArray cs)
+                                     parseWith (char c str2) (string $ fromCharArray cs) consChar 
 --                                     case (char c str2) of
 --                                          Tuple (Left err) _    -> Tuple (Left err) str2
 --                                          Tuple (Right ch) left -> bind 
