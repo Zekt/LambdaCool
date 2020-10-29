@@ -11,7 +11,9 @@ import Data.String.CodeUnits (toCharArray, fromCharArray)
 import Data.Maybe (Maybe(..), fromMaybe)
 --import Data.List
 import Data.Array
-import Data.Array.NonEmpty as NE
+import Data.Array.NonEmpty as NEA
+import Data.NonEmpty as NE
+--import Data.Array.NonEmpty.Internal (NonEmptyArray(..))
 import Data.Tuple
 import Data.Either
 import Effect (Effect)
@@ -48,6 +50,15 @@ derive instance genericParser :: Generic (Parser a) _
 instance showParser :: (Show a) => Show (Parser a) where
   show = genericShow
 
+instance functorParser :: Functor Parser where
+  map f (Tuple opt str) = Tuple (map f opt) str
+
+instance bindParser :: Bind Parser where
+  bind (Tuple (Left err) str) _ = Tuple (Left err) str
+  bind (Tuple (Right a) str) f = f a
+--                                        Tuple (Left err) str2   -> Tuple (Left err) str1
+--                                        Tuple (Right strP) str2 -> Tuple (Right )
+
 --instance showError :: (Show a) => Show (Error a) where
 --  show (Error (Right a))  = "Right (" + show a + ")"
 --  show (Error (Left str)) = "Left \"" + str + "\""
@@ -58,19 +69,30 @@ instance showParser :: (Show a) => Show (Parser a) where
 --  show (Tuple eit str) = "("+str+")"
 
 satisfy :: (Char -> Boolean) -> String -> Parser Char
-satisfy f str = let nonEmptyStr = NE.fromArray (toCharArray str)
+satisfy f str = let nonEmptyStr = NEA.fromArray (toCharArray str)
                  in case nonEmptyStr of
                          Nothing -> Tuple (Left "end of string") ""
-                         (Just strArr) -> let c  = NE.head strArr
-                                              cs = fromCharArray (NE.tail strArr)
-                                           in if f c then Tuple (Right c) cs
-                                                     else Tuple (Left "do not satisfy") cs
+                         Just strArr ->
+                           case NEA.toNonEmpty strArr of
+                                NE.NonEmpty c cs ->
+--                                  if f c then Tuple (Right c) (fromCharArray cs)
+--                                         else Tuple (Left "do not satisfy") (fromCharArray cs)
 
 char :: Char -> String -> Parser Char
 char c = satisfy (eq c)
 
---string :: String -> String -> Parser String
---string s = let 
+string :: String -> String -> Parser String
+string str1 str2 = let nonEmptyStr = NEA.fromArray (toCharArray str1)
+                    in case nonEmptyStr of
+                            Nothing -> Tuple (Left "end of string") ""
+                            Just strArr ->
+                              case NEA.toNonEmpty strArr of
+                                   NE.NonEmpty c cs ->
+                                     bind (char c str2) (\c -> map toCharArray $ string $ fromCharArray cs)
+--                                     case (char c str2) of
+--                                          Tuple (Left err) _    -> Tuple (Left err) str2
+--                                          Tuple (Right ch) left -> bind 
+                              
 
 --parse :: (String -> Parser a) -> String -> Parser a
 --parse f str = 
