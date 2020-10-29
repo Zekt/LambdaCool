@@ -44,23 +44,44 @@ import Web.DOM.NonElementParentNode (getElementById)
 --import Foreign.Generic.Class as Foreign 
 
 --newtype Error a = Error (Either String a)
-data Parser a = Tuple (Either String a) String
+data Parsed a = Tuple (Either String a) String
 
-derive instance genericParser :: Generic (Parser a) _
-instance showParser :: (Show a) => Show (Parser a) where
+data Parser a = P (String -> Parsed a)
+
+parse :: forall a. Parser a -> String -> Parsed a
+parse (P f) s = f s
+
+derive instance genericParser :: Generic (Parsed a) _
+instance showParser :: (Show a) => Show (Parsed a) where
   show = genericShow
 
-instance functorParser :: Functor Parser where
+instance functorParsed :: Functor Parsed where
   map f (Tuple opt str) = Tuple (map f opt) str
 
---instance applyParser :: Apply Parser where
---  apply (Tuple fopt str) fa = Tuple (apply fopt fa) str
+instance functorParser :: Functor Parser where
+  map f (P g) = P $ map f <<< g
 
---instance bindParser :: Bind Parser where
---  bind (Tuple (Left err) str) _ = Tuple (Left err) str
---  bind (Tuple (Right a) str) f = f a
---                                        Tuple (Left err) str2   -> Tuple (Left err) str1
---                                        Tuple (Right strP) str2 -> Tuple (Right )
+--instance applyParsed :: Apply Parsed where
+--  apply (Tuple fopt str) fa = Tuple (apply fopt fa) str
+--
+instance applyParser :: Apply Parser where
+  apply (P f) (P g) =
+    P $ \str ->
+          case f str of
+               Tuple (Left err) _    -> Tuple (Left err) str
+               Tuple (Right ff) left1 ->
+                 case g left1 of
+                      Tuple (Left err) _ -> Tuple (Left err) str
+                      Tuple (Right x) left2 -> Tuple (Right (ff x)) left2
+
+instance bindParser :: Bind Parser where
+  bind (P p) f =
+    P $ \str ->
+          case p str of
+               Tuple (Left err) _   -> Tuple (Left err) str
+               Tuple (Right a) left ->
+                 case f a of
+                      P q -> q left
 
 --instance showError :: (Show a) => Show (Error a) where
 --  show (Error (Right a))  = "Right (" + show a + ")"
@@ -71,37 +92,35 @@ instance functorParser :: Functor Parser where
 --instance showParser :: (Show a) => Show (Parser a) where
 --  show (Tuple eit str) = "("+str+")"
 
-satisfy :: (Char -> Boolean) -> String -> Parser Char
-satisfy f str = let nonEmptyStr = NEA.fromArray (toCharArray str)
-                 in case nonEmptyStr of
-                         Nothing -> Tuple (Left "end of string") ""
-                         Just strArr ->
-                           case NEA.toNonEmpty strArr of
-                                NE.NonEmpty c cs ->
-                                  if f c then Tuple (Right c) (fromCharArray cs)
-                                         else Tuple (Left "do not satisfy") (fromCharArray cs)
+satisfy :: (Char -> Boolean) -> Parser Char
+satisfy f = P $ \str ->
+                  let nonEmptyStr = NEA.fromArray (toCharArray str)
+                   in case nonEmptyStr of
+                           Nothing -> Tuple (Left "end of string") ""
+                           Just strArr ->
+                             case NEA.toNonEmpty strArr of
+                                  NE.NonEmpty c cs ->
+                                    if f c then Tuple (Right c) (fromCharArray cs)
+                                           else Tuple (Left "do not satisfy") (fromCharArray cs)
 
-char :: Char -> String -> Parser Char
+char :: Char -> Parser Char
 char c = satisfy (eq c)
 
 consChar :: Char -> String -> String
 consChar c str = fromCharArray $ cons c (toCharArray str)
 
-parseWith :: forall a b c. Parser a -> (String -> Parser b) -> (a -> b -> c) -> Parser c
-parseWith (Tuple (Left err) str) f1 f2 = Tuple (Left err) str
-parseWith (Tuple (Right a) str) f1 f2 = map (f2 a) (f1 str)
+--parseWith :: forall a b c. Parser a -> (String -> Parser b) -> (a -> b -> c) -> Parser c
+--parseWith (Tuple (Left err) str) f1 f2 = Tuple (Left err) str
+--parseWith (Tuple (Right a) str) f1 f2 = map (f2 a) (f1 str)
 
-string :: String -> String -> Parser String
-string str1 str2 = let nonEmptyStr = NEA.fromArray (toCharArray str1)
-                    in case nonEmptyStr of
-                            Nothing -> Tuple (Right "") str2
-                            Just strArr ->
-                              case NEA.toNonEmpty strArr of
-                                   NE.NonEmpty c cs ->
-                                     parseWith (char c str2) (string $ fromCharArray cs) consChar 
---                                     case (char c str2) of
---                                          Tuple (Left err) _    -> Tuple (Left err) str2
---                                          Tuple (Right ch) left -> bind 
+string :: String -> Parser String
+string str1 = let nonEmptyStr = NEA.fromArray (toCharArray str1)
+               in case nonEmptyStr of
+                       Nothing -> P $ Tuple (Right "")
+                       Just strArr ->
+                         case NEA.toNonEmpty strArr of
+                              NE.NonEmpty c cs ->
+                                bind (char c) $ \c -> map (consChar c) (string $ fromCharArray cs)
                               
 
 --parse :: (String -> Parser a) -> String -> Parser a
