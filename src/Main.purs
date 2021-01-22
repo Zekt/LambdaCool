@@ -44,9 +44,17 @@ import Web.DOM.NonElementParentNode (getElementById)
 --import Foreign.Generic.Class as Foreign 
 
 --newtype Error a = Error (Either String a)
-data Parsed a = Tuple (Either String a) String
 
-data Parser a = P (String -> Parsed a)
+--class SL expr where
+--  val :: Int -> expr Int
+--  lambda :: forall a b. (expr a -> expr b) -> expr (a -> b)
+--  apply :: forall a b. expr (a -> b) -> expr a -> expr b
+
+data SLTerm = Var String | Lambda (SLTerm -> SLTerm) | Apply SLTerm SLTerm
+
+newtype Parsed a = Pd (Tuple (Either String a) String)
+
+newtype Parser a = P (String -> Parsed a)
 
 parse :: forall a. Parser a -> String -> Parsed a
 parse (P f) s = f s
@@ -56,32 +64,38 @@ instance showParser :: (Show a) => Show (Parsed a) where
   show = genericShow
 
 instance functorParsed :: Functor Parsed where
-  map f (Tuple opt str) = Tuple (map f opt) str
+  map f (Pd (Tuple opt str)) = Pd $ Tuple (map f opt) str
 
 instance functorParser :: Functor Parser where
   map f (P g) = P $ map f <<< g
 
---instance applyParsed :: Apply Parsed where
---  apply (Tuple fopt str) fa = Tuple (apply fopt fa) str
---
 instance applyParser :: Apply Parser where
   apply (P f) (P g) =
     P $ \str ->
           case f str of
-               Tuple (Left err) _    -> Tuple (Left err) str
-               Tuple (Right ff) left1 ->
+               Pd (Tuple (Left err) _)     -> Pd $ Tuple (Left err) str
+               Pd (Tuple (Right ff) left1) ->
                  case g left1 of
-                      Tuple (Left err) _ -> Tuple (Left err) str
-                      Tuple (Right x) left2 -> Tuple (Right (ff x)) left2
+                      Pd (Tuple (Left err) _) -> Pd $ Tuple (Left err) str
+                      Pd (Tuple (Right x) left2) -> Pd $ Tuple (Right (ff x)) left2
 
 instance bindParser :: Bind Parser where
   bind (P p) f =
     P $ \str ->
           case p str of
-               Tuple (Left err) _   -> Tuple (Left err) str
-               Tuple (Right a) left ->
+               Pd (Tuple (Left err) _)   -> Pd $ Tuple (Left err) str
+               Pd (Tuple (Right a) left) ->
                  case f a of
                       P q -> q left
+
+parseOr :: forall a. Parser a -> Parser a -> Parser a
+parseOr (P f) (P g) = P $ \str ->
+                            case f str of
+                                 Pd (Tuple (Right ff) left) -> Pd (Tuple (Right ff) left)
+                                 Pd (Tuple (Left err) _) -> case g str of
+                                                                 Pd (Tuple (Right ff) left) -> Pd (Tuple (Right ff) left)
+                                                                 Pd (Tuple (Left err) left) -> Pd (Tuple (Left err) left)
+
 
 --instance showError :: (Show a) => Show (Error a) where
 --  show (Error (Right a))  = "Right (" + show a + ")"
@@ -92,16 +106,17 @@ instance bindParser :: Bind Parser where
 --instance showParser :: (Show a) => Show (Parser a) where
 --  show (Tuple eit str) = "("+str+")"
 
+mayEmpty s = NEA.fromArray (toCharArray s)
+
 satisfy :: (Char -> Boolean) -> Parser Char
 satisfy f = P $ \str ->
-                  let nonEmptyStr = NEA.fromArray (toCharArray str)
-                   in case nonEmptyStr of
-                           Nothing -> Tuple (Left "end of string") ""
-                           Just strArr ->
-                             case NEA.toNonEmpty strArr of
-                                  NE.NonEmpty c cs ->
-                                    if f c then Tuple (Right c) (fromCharArray cs)
-                                           else Tuple (Left "do not satisfy") (fromCharArray cs)
+                   case mayEmpty str of
+                        Nothing -> Pd $ Tuple (Left "end of string") ""
+                        Just strArr ->
+                          case NEA.toNonEmpty strArr of
+                               NE.NonEmpty c cs ->
+                                 if f c then Pd $ Tuple (Right c) (fromCharArray cs)
+                                        else Pd $ Tuple (Left "do not satisfy") (fromCharArray cs)
 
 char :: Char -> Parser Char
 char c = satisfy (eq c)
@@ -114,23 +129,18 @@ consChar c str = fromCharArray $ cons c (toCharArray str)
 --parseWith (Tuple (Right a) str) f1 f2 = map (f2 a) (f1 str)
 
 string :: String -> Parser String
-string str1 = let nonEmptyStr = NEA.fromArray (toCharArray str1)
-               in case nonEmptyStr of
-                       Nothing -> P $ Tuple (Right "")
-                       Just strArr ->
-                         case NEA.toNonEmpty strArr of
-                              NE.NonEmpty c cs ->
-                                bind (char c) $ \c -> map (consChar c) (string $ fromCharArray cs)
+string str = case mayEmpty str of
+                  Nothing -> P (\c -> Pd (Tuple (Right "") ""))
+                  Just strArr ->
+                    case NEA.toNonEmpty strArr of
+                         NE.NonEmpty c cs ->
+                           bind (char c) $ \c -> map (consChar c) (string $ fromCharArray cs)
                               
-
---parse :: (String -> Parser a) -> String -> Parser a
---parse f str = 
-                                           
---parse :: (String -> Boolean) -> String -> Parser String
---parse f "" = Tuple (Left "No parsable string.") ""
---
---parse :: forall a. Target a -> String -> Parser a
-
+--term :: String -> Parser SLTerm
+--term str = case mayEmpty str of
+--                Nothing -> P $ \c -> Pd $ Tuple (Left "Nothing to parse.") ""
+--                Just strArr ->
+--                  do lam = 
 
 cssRule :: String -> String -> CSS.CSS
 cssRule x y = CSS.rule (CSS.Property (CSS.Key $ CSS.Plain x) (CSS.Value $ CSS.Plain y))
